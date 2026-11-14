@@ -435,6 +435,8 @@ static int page_visible(uint32_t i)
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     if (PAGES[i].graph >= GR_FMOP && PAGES[i].graph <= GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
+    if (PAGES[i].graph == GR_DIVX)                    /* Divisor: a DIVISOR track's pages */
+        return TSEL->eng_req % NENGINES == ENGI_DIVISOR;
 #if FELUCCA_SLICE
     if (PAGES[i].graph == GR_SLICES)
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
@@ -1384,6 +1386,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
+    divisor_track_loaded(t);                          /* DIVISOR: the preset's mixer, VCF EG, QNT */
     load_end(t);
 }
 

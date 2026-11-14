@@ -245,6 +245,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         return ins_desc(t->p[P_ITYPE], id - P_IA);
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
+    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL && eng_idx(t->eng_req) == ENGI_DIVISOR)   /* Divisor: its mixer, VCF EG, QNT */
+        return dv_xdesc(id);
     return &TP[id];
 }
 
@@ -252,6 +254,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL && e == ENGI_DIVISOR)   /* Divisor: the slots as it uses them */
+        return dv_xdesc(id);
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
 
@@ -446,7 +450,8 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS,
+       GR_DIVX };   /* Divisor: a DIVISOR track's SUB MIX / VCF EG pages (ui.c page_visible), drawn as GR_NONE */   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
 
 typedef struct {
     const char *title;
@@ -485,6 +490,10 @@ static const page_t PAGES[] = {
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
     {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
     {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
+    /* Divisor (DIVISOR only, eng_divisor.c): the same slots as its mixer, VCF EG and quantizer */
+    {"SUB MIX", FAM_EDIT, SC_TRACK, GR_DIVX, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},   /* VCO1 VCO2 SUB1 SUB2 */
+    {"SUB MIX 2", FAM_EDIT, SC_TRACK, GR_DIVX, {P_FM1_LEVEL, P_FM2_ATK, 0xFF, 0xFF}},          /* SUB3 SUB4 */
+    {"VCF EG", FAM_EDIT, SC_TRACK, GR_DIVX, {P_FM2_DEC, P_FM2_SUS, P_FM2_REL, P_FM2_LEVEL}},   /* EG FATK FDEC QNT */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, P_ATSNS, P_ATDST, P_ATAMT}},   /* #148: SPREAD; 1.8: AFTERTOUCH */

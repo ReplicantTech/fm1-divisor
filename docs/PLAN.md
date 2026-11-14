@@ -143,3 +143,18 @@ and a rhythm/seq activity row of 8 dots.
   quiet; the mixer in Phase 1 fixes the balance.
 - Still to measure on the device: tests/target_budget.py's loop count of divisor_render in the pi32v2
   disassembly (BUDGET_UPDATE=1 tests/run_tests.sh after ./build.sh adds it).
+
+## Phase 1 results (2026-11-14, host)
+- Sound: six-channel mixer (VCO1 VCO2 SUB1..SUB4), VCF EG (attack, decay, bipolar amount into the ladder cutoff),
+  quantizer QNT (OFF, ET12, JI8, ET8) on VCO2's interval, eight presets. Verified on the host: the JUST preset's
+  VCO2 at +4 semitones lands on 5/4 (489 Hz over 391 Hz).
+- Storage: the ten extra parameters live in the track's P_FM1_ATK..P_FM2_LEVEL slots (DIGITAL's retired operator
+  envelopes), so projects, user presets, motion and the editor protocol carry them unchanged. params.c names them
+  on a DIVISOR track; PAGES shows them as SUB MIX, SUB MIX 2, VCF EG. P_FM3_ATK..P_FM4_LEVEL (ten) are reserved
+  for Phase 2 (rhythm dividers and assigns). The sequencer steps will need a store of their own.
+- Known limitation: no favourites for DIVISOR sounds (favorites.c has no free row or byte). Fixed by option B's
+  own store.
+- Tests: regress (golden renders, health, voices), union (engine memory), editor, ui_test (default, ADPCM and
+  CPU2=0 builds), ui_render lint (0 findings), project, upreset, motion, backup: all pass on the host.
+- JI8 ratio set (1/1 9/8 5/4 4/3 3/2 5/3 7/4 15/8) is a reasonable guess at Moog's; to check against the
+  Subharmonicon manual before Phase 2 uses it for the sequencer steps.
