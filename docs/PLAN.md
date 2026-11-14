@@ -130,3 +130,16 @@ and a rhythm/seq activity row of 8 dots.
   so the engine (eng_divisor.c) and the sequencer (divseq.c) stay independent of Felucca's UI.
 - Base: Felucca v1.8.2 exactly, upstream kept as the `upstream` git remote. Merge upstream only at phase boundaries.
 - Build machine: Arch Linux, native JieLi toolchain 20260730.1, AC79 SDK V1.2.1. Stock Felucca builds and all tests pass.
+
+## Phase 0 results (2026-11-14, host)
+- eng_divisor.c: 2 VCOs (polyBLEP saw or square), 4 phase-locked sub dividers (1..16), 4-pole ladder with
+  saturating feedback, the track's envelope. Registered as engine 15 (14 stays reserved for ADPCM).
+- Spectrum of preset DIVISOR at G4 (392.5 Hz): peaks at f, f/2, f/3, f/4, f/5. The dividers are exact.
+- Cost (callgrind, host x86-64, same 4 s mono phrase): divisor_render 20.9 M instructions against ANALOG
+  SUB BASS's analog_osc 13.0 M, so one Divisor voice is about 1.6 ANALOG voices. Felucca measured 8
+  ANALOG voices at 17 % of the device CPU, so the Divisor voice should take about 3.5 %. Decision: keep
+  the analog-style model (saw/square oscillators and a ladder filter). No need for the second core.
+- Levels: peaks 3300 to 8200 of 32767 at the voice level, no clipping. MOONDOG (square, deep divisors) is
+  quiet; the mixer in Phase 1 fixes the balance.
+- Still to measure on the device: tests/target_budget.py's loop count of divisor_render in the pi32v2
+  disassembly (BUDGET_UPDATE=1 tests/run_tests.sh after ./build.sh adds it).

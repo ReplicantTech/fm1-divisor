@@ -34,6 +34,10 @@
 #include <libproc.h>
 #include <sys/resource.h>
 #endif
+#ifdef __linux__
+#include <linux/perf_event.h>
+#include <sys/syscall.h>
+#endif
 
 /* ------------------------------------------------------------- limits --- */
 #define LIM_NEAR 30000            /* |sample| at or above: "near full scale" (the limiter holds ~18000) */
@@ -322,6 +326,26 @@ static uint64_t instr_now(void)
     struct rusage_info_v4 ri;
     if (!proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri))
         return ri.ri_instructions;
+#endif
+#ifdef __linux__
+    /* Divisor: the CPU's retired instructions of this process (user space) through perf_event_open; 0 where there
+     * is no PMU (a container, a VM without one) or perf_event_paranoid forbids it: then the CPU check is skipped */
+    static int fd = -2;
+    if (fd == -2) {
+        struct perf_event_attr a;
+        memset(&a, 0, sizeof a);
+        a.type = PERF_TYPE_HARDWARE;
+        a.size = sizeof a;
+        a.config = PERF_COUNT_HW_INSTRUCTIONS;
+        a.exclude_kernel = 1;
+        a.exclude_hv = 1;
+        fd = (int)syscall(SYS_perf_event_open, &a, 0, -1, -1, 0);
+    }
+    if (fd >= 0) {
+        uint64_t v = 0;
+        if (read(fd, &v, sizeof v) == (ssize_t)sizeof v)
+            return v;
+    }
 #endif
     return 0;
 }

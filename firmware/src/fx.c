@@ -872,7 +872,10 @@ static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67
 #endif
 #if FELUCCA_ADPCM
                                              168,      /* ADPCM (ORGAN, 1693 instructions / sample at 8 notes) */
+#else
+                                             0,        /* 14 reserved */
 #endif
+                                             300,      /* DIVISOR: one voice, six oscillators and the ladder (Phase 0 estimate) */
 };
 #endif
 
