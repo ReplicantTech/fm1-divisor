@@ -158,3 +158,36 @@ and a rhythm/seq activity row of 8 dots.
   CPU2=0 builds), ui_render lint (0 findings), project, upreset, motion, backup: all pass on the host.
 - JI8 ratio set (1/1 9/8 5/4 4/3 3/2 5/3 7/4 15/8) is a reasonable guess at Moog's; to check against the
   Subharmonicon manual before Phase 2 uses it for the sequencer steps.
+
+## Level fix (2026-11-14, after device tests 1-7)
+- Device tests 1 to 6 passed: exact dividers, lock under vibrato and glide, clean self-oscillation, VCF EG,
+  quantizer, mono playing. Test 7: everything was quieter than Felucca, MOONDOG more so, PLUCK very quiet.
+- Fix: the mix drives the ladder input twice as hard and the output gain is 4. Presets now measure in ANALOG's
+  range on the host. MOONDOG and PLUCK reworked.
+
+## Phase 2 results (2026-11-14, host)
+- divseq.c: the Subharmonicon's sequencer section, run from seq.c in place of Felucca's step sequencer on a
+  DIVISOR track. Clock = the track's DIV at the song tempo or the external MIDI clock. RHY1..RHY4 divide it by
+  1..16; ASSIGN routes each to SEQ 1, SEQ 2, both or off (OR logic). Two 4-step sequencers; ROUTE sends SEQ 1
+  to VCO1 / SUB1 / SUB2 and SEQ 2 to VCO2 / SUB3 / SUB4 in any combination. On a VCO a step is a pitch offset
+  (RANGE 1, 2 or 5 octaves at full scale) through the quantizer; on a sub it adds step/8 to the division.
+  Each advance retriggers both envelopes. Keys and MIDI move the root while it runs.
+- Pages under SEQ on a DIVISOR track: SEQ 1, SEQ 2, RHYTHM, ASSIGN, ROUTE (STEP and DETAIL hidden there).
+- Storage: steps in P_LN0..P_LN7 (DRUM's lane levels), rhythms and routes in P_FM3_ATK..P_FM4_LEVEL, RANGE in
+  P_FTYPE. All saved by projects and user presets, recordable as automation.
+- Each preset has its own sequence and polyrhythm.
+- tests/divseq_test.c checks 64 pulses of every preset against an independent model: rhythm firing, step
+  advance, offsets, note per advance, pulse timing, gate length, keys moving the root, STOP. All pass, as do
+  regress, union, ui_test (3 builds), ui_render lint (every engine x page x value), editor, project, upreset,
+  motion, backup and chord tests.
+- Assumptions to check against the Subharmonicon manual: OR logic only (no XOR), sub step = step/8, JI8 ratios.
+
+## Operability: why option B next
+On option A every Subharmonicon control is a knob on some page, reached by tapping SEQ or EDIT several times.
+That proves the sound and the logic but is not how the instrument should feel. Option B gives Divisor the whole
+panel. Proposal to discuss before building:
+- Keys: the 27 keys become buttons. 8 for SEQ 1 / SEQ 2 steps (press and turn a knob to set, LED = playing step),
+  4 for the rhythms (LED blinks on each fire), 8 for the rhythm-to-sequencer assigns (lit = on), 6 for the
+  sequencer-to-oscillator routes (lit = on), 1 for play / root hold.
+- Knobs: four fixed sets selected by the existing page buttons (OSC, MIX, FILTER, SEQ), always one press away.
+- Screen: a live view of both sequencers, the four rhythm clocks and the six oscillator pitches.

@@ -429,14 +429,16 @@ static uint32_t layer_btn(void);
  * track's (its patch's operators, ui_fm6op.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].graph == GR_DIVX)                    /* Divisor: a DIVISOR track's pages (first: SEQ 1 / 2 hold the */
+        return TSEL->eng_req % NENGINES == ENGI_DIVISOR;   /* lane slots LANES has) */
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     if (PAGES[i].graph >= GR_FMOP && PAGES[i].graph <= GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
-    if (PAGES[i].graph == GR_DIVX)                    /* Divisor: a DIVISOR track's pages */
-        return TSEL->eng_req % NENGINES == ENGI_DIVISOR;
+    if (PAGES[i].fam == FAM_SEQ && PAGES[i].graph == GR_ROLL && TSEL->eng_req % NENGINES == ENGI_DIVISOR)
+        return 0;                                     /* (Divisor: its own sequencer in place of STEP and DETAIL) */
 #if FELUCCA_SLICE
     if (PAGES[i].graph == GR_SLICES)
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
@@ -448,13 +450,18 @@ static int page_visible(uint32_t i)
              PAGES[i].id[0] <= P_FM4_LEVEL) || (FELUCCA_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
 }
 
-static uint32_t page_first(uint32_t fam)
+static int page_visible(uint32_t i);
+static uint32_t page_first(uint32_t fam)       /* the family's first page shown on this track (Divisor: SEQ's differ) */
 {
-    uint32_t i;
+    uint32_t i, first = NPAGES;
     for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam)
-            return i;
-    return 0;
+        if (PAGES[i].fam == fam) {
+            if (page_visible(i))
+                return i;
+            if (first == NPAGES)
+                first = i;
+        }
+    return first < NPAGES ? first : 0u;
 }
 
 /* transient message in the top bar, right of the transport and the BPM: a + b */
@@ -539,7 +546,7 @@ static void page_entered(void)
         ev_enter();
     if (!ui.home && lock_page_ok(ui.page))
         ui.plk_src = (uint8_t)(ui.page + 1u);
-    song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
+    song.seq_mode = !ui.home && pg->fam == FAM_SEQ && pg->graph != GR_DIVX;   /* (Divisor's pages: no step cursor) */
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */

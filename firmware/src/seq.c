@@ -58,6 +58,7 @@ static volatile uint8_t midi_seen;       /* 1.5.5 (#208): bit per track, a MIDI 
                                           * ui.c scr_input: MENU > MIDI > SCREEN WAKE +MIDI) */
 
 static uint32_t trk_index(const track_t *t) { return (uint32_t)(t - trk); }
+#include "divseq.c"                              /* Divisor: a DIVISOR track's rhythms and sequencers (seq_tick) */
 
 /* MENU > MIDI > MIDI IN (G_ROUTE, up to 1.1.5 GLO > SYSTEM ROUT): the first channel (0..15) of the block of four that
  * plays tracks 1..4, -1 with SEL, -2 with TRACK (each track its own: song.mch). Stored
@@ -672,6 +673,8 @@ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
     last_note = (uint8_t)note;
+    if (divseq_input(t, note, 1))                   /* Divisor: its sequencer runs, the key moves the root */
+        return;
     if (cin_left)
         cin_keep(t, note, vel);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
@@ -687,6 +690,8 @@ static int midi_local_held(const track_t *t, uint32_t note);
 static void input_off(track_t *t, uint32_t note)
 {
     if (midi_note_held(t, note))
+        return;
+    if (divseq_input(t, note, 0))                   /* Divisor: the sequencer's note is its own */
         return;
     if (cin_left) {                                 /* a kept note let go before step 1: recorded, then let go */
         uint32_t i = trk_index(t), k;
@@ -1233,6 +1238,11 @@ static void seq_tick(track_t *t, uint32_t n)
     uint32_t period, len, top;
     if (song.g[G_CLOCK])
         n = midi_grid_advance(&midi_seq_grid[trk_index(t)], n, (uint32_t)t->p[P_SDIV]);
+    if (divseq_tick(t, n)) {                        /* Divisor: a DIVISOR track's own sequencer, not the steps */
+        if (t->seq_n)
+            seq_release(t);
+        return;
+    }
     if (t->seq_n && !t->seq_hold) {
         if (t->seq_off <= n)
             seq_release(t);

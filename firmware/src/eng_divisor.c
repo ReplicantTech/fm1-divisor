@@ -16,8 +16,9 @@
  * CUT RES ATK REL. Ten more in the track's P_FM1_ATK .. P_FM2_LEVEL slots (DIGITAL's retired operator
  * envelopes: stored in projects, user presets and motion like any parameter; params.c param_desc_of names
  * them on a DIVISOR track, params.c PAGES shows them as SUB MIX, SUB MIX 2 and VCF EG): the six levels, EG AMT,
- * F ATK, F DEC and QNT, the quantizer (OFF, ET12, JI8, ET8: the Subharmonicon's four). P_FM3_ATK ..
- * P_FM4_LEVEL (ten) are reserved for the sequencer (divseq.c, phase 2).
+ * F ATK, F DEC and QNT, the quantizer (OFF, ET12, JI8, ET8). The sequencer section (divseq.c) keeps its values the
+ * same way: RHY1..RHY4, the rhythm ASSIGNs and the two ROUTEs in P_FM3_ATK .. P_FM4_LEVEL, the eight steps in
+ * DRUM's lane levels P_LN0 .. P_LN7, the RANGE in ANALOG's filter TYPE P_FTYPE; its clock is the track's DIV.
  *
  * No favourites: favorites.c keeps a row per engine 0..13 and the settings in rows 14 and 15, all of whose bytes
  * are taken, so FAV on a DIVISOR sound changes nothing (favorite_set refuses). The dedicated front panel (plan,
@@ -32,8 +33,11 @@ static const char *const N_DIV_QNT[] = {"OFF", "ET12", "JI8", "ET8"};
 #define DV_GAIN 4                /* the ladder's output to the voice level (Felucca's engines' loudness) */
 #endif
 #define DV_NX 10u                /* the extra parameters, P_FM1_ATK .. */
-enum { DV_LV1 = P_FM1_ATK, DV_LV2, DV_LS1, DV_LS2, DV_LS3, DV_LS4, DV_EGA, DV_FATK, DV_FDEC, DV_QNT };
-_Static_assert(DV_QNT == P_FM2_LEVEL && DV_QNT - DV_LV1 + 1 == DV_NX, "DIVISOR: ten slots in a row");
+enum { DV_LV1 = P_FM1_ATK, DV_LV2, DV_LS1, DV_LS2, DV_LS3, DV_LS4, DV_EGA, DV_FATK, DV_FDEC, DV_QNT,
+       DV_R1, DV_R2, DV_R3, DV_R4, DV_RA1, DV_RA2, DV_RA3, DV_RA4, DV_SA1, DV_SA2 };
+#define DV_NY 10u                /* the sequencer's: DV_R1 .. DV_SA2 */
+_Static_assert((int)DV_QNT == (int)P_FM2_LEVEL && (int)DV_QNT - (int)DV_LV1 + 1 == (int)DV_NX, "DIVISOR: ten slots in a row");
+_Static_assert((int)DV_SA2 == (int)P_FM4_LEVEL, "DIVISOR: the sequencer's ten after them");
 
 typedef struct {
     uint32_t ph[2];              /* the VCOs' phases */
@@ -42,6 +46,12 @@ typedef struct {
     uint8_t fstage;              /* VCF EG: 0 idle, 1 attack, 2 decay */
     int32_t fenv;                /* VCF EG level, Q24 */
     int32_t y[4];                /* the ladder's four poles */
+    /* the sequencer (divseq.c) */
+    int16_t sq_vco[2];           /* the VCOs' offsets, 1/16 semitone (before the quantizer) */
+    int8_t sq_div[DV_NSUB];      /* the subs' division offsets */
+    uint8_t run, gate, note, root;   /* running; a note on (its number); the root */
+    uint8_t step[2], fired;      /* the sequencers' steps (0..3); the last pulse's advances (bit 0 SEQ 1, bit 1 SEQ 2) */
+    uint32_t pos, pulse, gate_left;  /* samples into the pulse, pulses since PLAY, samples the note still holds */
 } dv_part_t;
 ENG_MEM_FITS("DIVISOR", sizeof(dv_part_t));
 static inline dv_part_t *dv_of(const track_t *t) { return (dv_part_t *)ENG_MEM((uint32_t)(t - trk) % NPART); }
@@ -58,11 +68,44 @@ static const param_desc_t DV_XDESC[DV_NX] = {
     {"FDEC", F_TIME, 0, 127, 70, 0, 0},
     {"QNT", F_ENUM, 0, 3, 1, N_DIV_QNT, 0},
 };
-static const param_desc_t DV_XNONE = {"-", F_INT, 0, 0, 0, 0, 0};
-/* the descriptor of a P_FM1_ATK .. P_FM4_LEVEL slot on a DIVISOR track (params.c param_desc_of) */
+static const char *const N_DV_RA[] = {"OFF", "SEQ1", "SEQ2", "BOTH"};
+static const char *const N_DV_SA[] = {"OFF", "VCO", "SUB A", "VCO+A", "SUB B", "VCO+B", "A+B", "ALL"};
+static const char *const N_DV_OCT[] = {"1 OCT", "2 OCT", "5 OCT"};
+static const param_desc_t DV_YDESC[DV_NY] = {
+    {"RHY1", F_INT, 1, 16, 1, 0, 0},
+    {"RHY2", F_INT, 1, 16, 2, 0, 0},
+    {"RHY3", F_INT, 1, 16, 3, 0, 0},
+    {"RHY4", F_INT, 1, 16, 4, 0, 0},
+    {"R1>", F_ENUM, 0, 3, 1, N_DV_RA, 0},
+    {"R2>", F_ENUM, 0, 3, 2, N_DV_RA, 0},
+    {"R3>", F_ENUM, 0, 3, 0, N_DV_RA, 0},
+    {"R4>", F_ENUM, 0, 3, 0, N_DV_RA, 0},
+    {"SEQ1>", F_ENUM, 0, 7, 1, N_DV_SA, 0},
+    {"SEQ2>", F_ENUM, 0, 7, 1, N_DV_SA, 0},
+};
+static const param_desc_t DV_STEP[8] = {
+    {"S1.1", F_BIPCT, -64, 63, 0, 0, 0}, {"S1.2", F_BIPCT, -64, 63, 0, 0, 0},
+    {"S1.3", F_BIPCT, -64, 63, 0, 0, 0}, {"S1.4", F_BIPCT, -64, 63, 0, 0, 0},
+    {"S2.1", F_BIPCT, -64, 63, 0, 0, 0}, {"S2.2", F_BIPCT, -64, 63, 0, 0, 0},
+    {"S2.3", F_BIPCT, -64, 63, 0, 0, 0}, {"S2.4", F_BIPCT, -64, 63, 0, 0, 0},
+};
+static const param_desc_t DV_RANGE = {"RANGE", F_ENUM, 0, 2, 0, N_DV_OCT, 0};
+/* the descriptor of a common parameter DIVISOR uses as its own (params.c track_desc / param_desc_of), 0 = TP's */
 static const param_desc_t *dv_xdesc(uint32_t id)
 {
-    return id >= DV_LV1 && id < DV_LV1 + DV_NX ? &DV_XDESC[id - DV_LV1] : &DV_XNONE;
+    if (id >= DV_LV1 && id < DV_LV1 + DV_NX)
+        return &DV_XDESC[id - DV_LV1];
+    if (id >= DV_R1 && id <= DV_SA2)
+        return &DV_YDESC[id - DV_R1];
+    if (id >= P_LN0 && id <= P_LN7)
+        return &DV_STEP[id - P_LN0];
+    if (id == P_FTYPE)
+        return &DV_RANGE;
+    return 0;
+}
+static int dv_own(uint32_t id)
+{
+    return (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) || id == P_FTYPE;
 }
 
 /* the quantizer: an offset in 1/16 semitones -> the nearest pitch of the mode. OFF as it is; ET12 whole semitones;
@@ -153,16 +196,21 @@ static __attribute__((noinline)) void divisor_render(track_t *t, voice_t *v, int
     int32_t cut = (p[P_E6] << 8) + m->cutoff + ((p[DV_EGA] * feg) >> 5);   /* EG AMT 63: up to twice the range */
     int32_t g = dv_pole_g(cut);
     int32_t kres = p[P_E7] * 140;                       /* feedback, Q12: 0 .. ~4.3 (self-oscillation above ~4) */
-    int32_t vco2 = dv_quant(p[P_E1] * 16, (uint32_t)p[DV_QNT] & 3u);
+    uint32_t qm = (uint32_t)p[DV_QNT] & 3u;
+    int32_t vco1 = D->sq_vco[0] ? dv_quant(D->sq_vco[0], qm) : 0;
+    int32_t vco2 = dv_quant(p[P_E1] * 16 + D->sq_vco[1], qm);
     (void)v;
-    inc[0] = m->inc;
+    inc[0] = vco1 ? pitch_inc(clamp(m->pitch16 + vco1, 0, 2047)) : m->inc;
     inc[1] = pitch_inc(clamp(m->pitch16 + vco2, 0, 2047));
-    if (m->fine)
+    if (m->fine) {
+        if (vco1)
+            inc[0] += (uint32_t)((int32_t)(inc[0] >> 12) * m->fine);
         inc[1] += (uint32_t)((int32_t)(inc[1] >> 12) * m->fine);
+    }
     lv[0] = clamp(p[DV_LV1], 0, 127);
     lv[1] = clamp(p[DV_LV2], 0, 127);
     for (k = 0; k < DV_NSUB; k++) {
-        div[k] = (uint32_t)clamp(p[P_E2 + k], 1, 16);
+        div[k] = (uint32_t)clamp(p[P_E2 + k] + D->sq_div[k], 1, 16);
         sinc[k] = inc[k >> 1] / div[k];
         rcp[k] = 65536u / div[k];                       /* for the restart: ph / div as (ph >> 16) * rcp */
         sph[k] = D->sph[k];
@@ -245,19 +293,46 @@ static const int8_t DV_PRESET_X[NELEM(DIVISOR_PRESETS)][DV_NX] = {
     {110, 110, 100, 100, 100, 100, 63, 0, 60, 1},      /* PLUCK: the EG does the note */
 };
 
-/* after a preset's values (ui.c apply_preset_to, tests/hostsim.c): a DIVISOR track's ten extra parameters from the
- * preset's row (the common ones were just reset to TP's defaults, DIGITAL's; the reserved ten to 0) */
+/* the presets' sequencer: steps S1.1..S2.4 (at RANGE 1 OCT a semitone is ~5.3: 37 a fifth, 64 an octave), RHY1..4,
+ * R1>..R4> (0 OFF 1 SEQ1 2 SEQ2 3 BOTH), SEQ1> SEQ2> (bit 0 VCO, 1 SUB A, 2 SUB B), RANGE. (The clock, the track's DIV,
+ * stays as the track has it: Felucca keeps a track's DIV over a sound load) */
+typedef struct {
+    int8_t st[8];
+    uint8_t r[4], ra[4], sa[2], range;
+} dv_seq_t;
+static const dv_seq_t DV_PRESET_SEQ[NELEM(DIVISOR_PRESETS)] = {
+    {{0, 37, 16, 63, 0, -27, 27, -64}, {4, 3, 5, 7}, {1, 2, 0, 0}, {1, 1}, 0},        /* DIVISOR: 4 against 3 */
+    {{0, 37, 0, 27, 0, 16, 37, 0}, {2, 3, 4, 6}, {1, 2, 0, 0}, {1, 1}, 0},           /* FIFTHS */
+    {{0, 40, -24, 16, 8, -16, 24, 0}, {3, 4, 5, 7}, {1, 2, 1, 2}, {7, 7}, 0},        /* MOONDOG: every route */
+    {{0, -27, 0, 11, 0, 0, -32, 16}, {8, 6, 16, 12}, {1, 2, 0, 0}, {1, 1}, 0},       /* DEEP: slow */
+    {{0, 63, 0, -64, 0, 32, -32, 63}, {2, 4, 3, 8}, {1, 2, 3, 0}, {1, 1}, 0},        /* OCTAVES */
+    {{0, 0, 16, 0, 0, 0, -16, 0}, {3, 5, 4, 7}, {1, 2, 0, 0}, {3, 3}, 0},            /* UNISON: subs move */
+    {{0, 21, 37, 58, 0, 27, -21, 0}, {2, 3, 5, 4}, {1, 2, 0, 0}, {1, 1}, 0},         /* JUST: JI8 steps */
+    {{0, 37, 21, 48, 0, 16, 27, -11}, {1, 2, 3, 5}, {1, 2, 3, 0}, {1, 1}, 0},        /* PLUCK: 1/16 pulses */
+};
+
+/* after a preset's values (ui.c apply_preset_to, tests/hostsim.c): a DIVISOR track's own parameters from the preset's
+ * rows (the common ones were just reset to TP's defaults: DIGITAL's, DRUM's, ANALOG's) */
 static void divisor_track_loaded(track_t *t)
 {
     uint32_t i, pi = t->preset;
+    const dv_seq_t *q;
     if (t->eng_req % NENGINES != ENGI_DIVISOR)
         return;
     if (pi >= NELEM(DIVISOR_PRESETS))
         pi = 0;
+    q = &DV_PRESET_SEQ[pi];
     for (i = 0; i < DV_NX; i++)
         t->p[DV_LV1 + i] = DV_PRESET_X[pi][i];
-    for (i = DV_LV1 + DV_NX; i <= P_FM4_LEVEL; i++)
-        t->p[i] = 0;
+    for (i = 0; i < 4u; i++) {
+        t->p[DV_R1 + i] = q->r[i];
+        t->p[DV_RA1 + i] = q->ra[i];
+    }
+    t->p[DV_SA1] = q->sa[0];
+    t->p[DV_SA2] = q->sa[1];
+    for (i = 0; i < 8u; i++)
+        t->p[P_LN0 + i] = q->st[i];
+    t->p[P_FTYPE] = q->range;
 }
 
 static const engine_t ENG_DIVISOR = {

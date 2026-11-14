@@ -245,7 +245,7 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         return ins_desc(t->p[P_ITYPE], id - P_IA);
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
-    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL && eng_idx(t->eng_req) == ENGI_DIVISOR)   /* Divisor: its mixer, VCF EG, QNT */
+    if (eng_idx(t->eng_req) == ENGI_DIVISOR && dv_own(id))   /* Divisor: its mixer, VCF EG, QNT, sequencer */
         return dv_xdesc(id);
     return &TP[id];
 }
@@ -254,7 +254,7 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
-    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL && e == ENGI_DIVISOR)   /* Divisor: the slots as it uses them */
+    if (e == ENGI_DIVISOR && dv_own(id))              /* Divisor: the slots as it uses them */
         return dv_xdesc(id);
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
@@ -509,6 +509,12 @@ static const page_t PAGES[] = {
     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
+    /* Divisor (DIVISOR only, divseq.c): its sequencer section in place of STEP and DETAIL */
+    {"SEQ 1", FAM_SEQ, SC_TRACK, GR_DIVX, {P_LN0, P_LN1, P_LN2, P_LN3}},                      /* S1.1 .. S1.4 */
+    {"SEQ 2", FAM_SEQ, SC_TRACK, GR_DIVX, {P_LN4, P_LN5, P_LN6, P_LN7}},                      /* S2.1 .. S2.4 */
+    {"RHYTHM", FAM_SEQ, SC_TRACK, GR_DIVX, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},     /* RHY1 .. RHY4 */
+    {"ASSIGN", FAM_SEQ, SC_TRACK, GR_DIVX, {P_FM3_LEVEL, P_FM4_ATK, P_FM4_DEC, P_FM4_SUS}},   /* R1> .. R4> */
+    {"ROUTE", FAM_SEQ, SC_TRACK, GR_DIVX, {P_FM4_REL, P_FM4_LEVEL, P_FTYPE, P_SDIV}},         /* SEQ1> SEQ2> RANGE DIV */
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL
                                                              * (ui.c detail_on, ui_input.c sd_turn) */
