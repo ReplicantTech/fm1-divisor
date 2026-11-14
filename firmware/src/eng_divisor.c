@@ -25,6 +25,12 @@
 static const char *const N_DIV_WAVE[] = {"SAW", "SQR"};
 static const char *const N_DIV_QNT[] = {"OFF", "ET12", "JI8", "ET8"};
 #define DV_NSUB 4u
+#ifndef DV_DRIVE
+#define DV_DRIVE 9               /* the mix into the ladder: >> 9 (Q15 x Q7 levels, six channels) */
+#endif
+#ifndef DV_GAIN
+#define DV_GAIN 4                /* the ladder's output to the voice level (Felucca's engines' loudness) */
+#endif
 #define DV_NX 10u                /* the extra parameters, P_FM1_ATK .. */
 enum { DV_LV1 = P_FM1_ATK, DV_LV2, DV_LS1, DV_LS2, DV_LS3, DV_LS4, DV_EGA, DV_FATK, DV_FDEC, DV_QNT };
 _Static_assert(DV_QNT == P_FM2_LEVEL && DV_QNT - DV_LV1 + 1 == DV_NX, "DIVISOR: ten slots in a row");
@@ -195,14 +201,15 @@ static __attribute__((noinline)) void divisor_render(track_t *t, voice_t *v, int
         }
         for (k = 0; k < DV_NSUB; k++)
             sph[k] += sinc[k];
-        /* the ladder: the mix (six at full level: 6 x 127 x full scale) to ~0.75, the feedback off the last pole,
-         * the saturation at the input (the ladder's transistors), four one-poles */
-        x = softclip((s >> 10) - ((kres * y3) >> 12));
+        /* the ladder: the mix (six at full level: 6 x 127 x full scale) to ~1.5 into the input saturation (the
+         * ladder's transistors: driven, as the hardware's mixer drives it), the feedback off the last pole, four
+         * one-poles */
+        x = softclip((s >> DV_DRIVE) - ((kres * y3) >> 12));
         y0 += (g * (x - y0)) >> 12;
         y1 += (g * (y0 - y1)) >> 12;
         y2 += (g * (y1 - y2)) >> 12;
         y3 += (g * (y2 - y3)) >> 12;
-        out[i] += voice_amp(y3, m, i) * 2;
+        out[i] += voice_amp(y3, m, i) * DV_GAIN;
     }
     D->ph[0] = ph[0];
     D->ph[1] = ph[1];
@@ -220,22 +227,22 @@ static __attribute__((noinline)) void divisor_render(track_t *t, voice_t *v, int
 static const preset_t DIVISOR_PRESETS[] = {
     {"DIVISOR", {0, 0, 2, 3, 4, 5, 70, 30}, {0, 70, 100, 40}, 0, 1, FX(0, 0, 20, 30), PAT(8)},
     {"FIFTHS", {0, 7, 2, 4, 3, 6, 60, 40}, {0, 60, 90, 50}, 0, 1, FX(0, 10, 30, 40), PAT(5)},
-    {"MOONDOG", {1, 0, 3, 5, 7, 2, 50, 50}, {0, 50, 60, 30}, 0, 1, FX(0, 0, 40, 20), PAT(8)},
+    {"MOONDOG", {1, 0, 3, 5, 7, 2, 68, 40}, {0, 60, 80, 30}, 0, 1, FX(0, 0, 40, 20), PAT(8)},
     {"DEEP", {0, -12, 2, 4, 2, 8, 36, 20}, {10, 80, 110, 60}, 0, 1, FX(0, 0, 10, 50), PAT(5)},
     {"OCTAVES", {1, 12, 2, 4, 8, 16, 85, 10}, {0, 60, 100, 30}, 0, 1, FX(0, 20, 20, 30), PAT(2)},
     {"UNISON", {0, 0, 1, 1, 1, 1, 90, 60}, {0, 50, 80, 40}, 0, 1, FX(10, 0, 30, 20), PAT(1)},
     {"JUST", {0, 4, 2, 3, 5, 6, 64, 45}, {0, 60, 100, 50}, 0, 1, FX(0, 15, 25, 35), PAT(5)},
-    {"PLUCK", {1, 0, 2, 4, 3, 6, 30, 70}, {0, 60, 0, 40}, 0, 1, FX(0, 0, 35, 25), PAT(3)},
+    {"PLUCK", {1, 0, 2, 4, 3, 6, 58, 55}, {0, 88, 0, 60}, 0, 1, FX(0, 0, 35, 25), PAT(3)},
 };
 static const int8_t DV_PRESET_X[NELEM(DIVISOR_PRESETS)][DV_NX] = {
     {100, 100, 80, 80, 80, 80, 30, 0, 70, 1},          /* DIVISOR */
     {100, 90, 70, 70, 70, 70, 25, 0, 80, 1},           /* FIFTHS */
-    {90, 90, 100, 100, 100, 100, 40, 0, 60, 1},        /* MOONDOG */
+    {100, 100, 110, 110, 110, 110, 40, 0, 60, 1},      /* MOONDOG */
     {100, 80, 90, 60, 90, 60, 20, 30, 100, 1},         /* DEEP */
     {100, 100, 60, 60, 60, 60, 35, 0, 50, 1},          /* OCTAVES */
     {100, 100, 100, 100, 100, 100, 50, 0, 60, 1},      /* UNISON */
     {100, 100, 80, 80, 80, 80, 30, 0, 75, 2},          /* JUST: JI8 */
-    {100, 100, 90, 90, 90, 90, 63, 0, 40, 1},          /* PLUCK: the EG does the note */
+    {110, 110, 100, 100, 100, 100, 63, 0, 60, 1},      /* PLUCK: the EG does the note */
 };
 
 /* after a preset's values (ui.c apply_preset_to, tests/hostsim.c): a DIVISOR track's ten extra parameters from the
